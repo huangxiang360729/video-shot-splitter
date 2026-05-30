@@ -1665,6 +1665,18 @@ def write_summary_json(out_dir, video_path, report_path, run_rows, fps, frame_co
     return summary_path
 
 
+def cleanup_debug_outputs(out_dir: Path) -> None:
+    for file_name in ["candidate_sweep_report.html", "candidate_sweep.csv", "candidate_sweep_meta.json"]:
+        path = out_dir / file_name
+        if path.exists():
+            path.unlink()
+    clips_dir = out_dir / "candidate_clips"
+    if clips_dir.exists():
+        import shutil
+
+        shutil.rmtree(clips_dir)
+
+
 def run_sweep_cli(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(description="High-recall local candidate sweep for fast transitions.")
     parser.add_argument("video", type=Path)
@@ -1689,6 +1701,7 @@ def run_sweep_cli(argv: list[str] | None = None):
     parser.add_argument("--bright-threshold", type=float, default=0.96)
     parser.add_argument("--luma-pad-frames", type=int, default=2)
     parser.add_argument("--min-normal-seconds", type=float, default=0.45)
+    parser.add_argument("--debug", action="store_true", help="Write candidate reports, candidate clips, and debug metadata.")
     args = parser.parse_args(argv)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -1708,8 +1721,11 @@ def run_sweep_cli(argv: list[str] | None = None):
         weak_visual_keep_threshold=args.weak_visual_keep_threshold,
         min_supports=args.min_supports,
     )
-    clip_rows = export_candidate_clips(args.video, args.output_dir, candidates, fps, args.clip_seconds)
-    report, csv_path = write_outputs(args.output_dir, args.video, candidates, clip_rows, fps, len(frames), args.threshold)
+    if args.debug:
+        clip_rows = export_candidate_clips(args.video, args.output_dir, candidates, fps, args.clip_seconds)
+        report, csv_path = write_outputs(args.output_dir, args.video, candidates, clip_rows, fps, len(frames), args.threshold)
+    else:
+        cleanup_debug_outputs(args.output_dir)
     if args.split_runs:
         runs = build_runs_from_candidates(
             candidates,
@@ -1734,8 +1750,9 @@ def run_sweep_cli(argv: list[str] | None = None):
         print(f"Wrote: {run_csv}")
         print(f"Wrote: {summary_path}")
     print(f"candidates={len(candidates)}")
-    print(f"Wrote: {report}")
-    print(f"Wrote: {csv_path}")
+    if args.debug:
+        print(f"Wrote: {report}")
+        print(f"Wrote: {csv_path}")
 
 
 
@@ -1748,6 +1765,7 @@ def run_pipeline_cli(argv: list[str] | None = None) -> None:
     parser.add_argument("video", type=Path)
     parser.add_argument("--output-dir", type=Path, default=Path("outputs_pipeline"))
     parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
+    parser.add_argument("--debug", action="store_true", help="Keep intermediate files and candidate debug outputs.")
     args = parser.parse_args(argv)
 
     video = args.video
@@ -1828,10 +1846,17 @@ def run_pipeline_cli(argv: list[str] | None = None) -> None:
             "2",
             "--min-normal-seconds",
             "0.45",
+            *(["--debug"] if args.debug else []),
         ]
     )
 
     report = result_dir / "normal_transition_report.html"
+    if not args.debug:
+        for path in [transnet_dir, autoshot_dir]:
+            if path.exists():
+                import shutil
+
+                shutil.rmtree(path)
     print(f"Done. Open: {report}")
 
 

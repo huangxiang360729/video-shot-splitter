@@ -111,8 +111,6 @@ python video_splitter.py run path\to\video.mov --device cuda
 
 ```text
 outputs_pipeline/
-├── transnet/
-├── autoshot/
 └── result/
 ```
 
@@ -129,10 +127,6 @@ normal_transition_report.html   # 最终可视化报告
 summary.json                    # 最终结构化总结
 normal_transition_runs.csv      # 每个 normal/transition run 的表格
 run_clips/                      # 最终 normal/transition 小视频
-candidate_sweep_report.html     # 候选点调试报告
-candidate_sweep.csv             # 候选点分数和来源
-candidate_sweep_meta.json       # 候选点元信息
-candidate_clips/                # 候选点附近的小视频
 ```
 
 普通用户主要看：
@@ -140,6 +134,30 @@ candidate_clips/                # 候选点附近的小视频
 ```text
 outputs_pipeline/result/normal_transition_report.html
 outputs_pipeline/result/summary.json
+```
+
+如果使用 `--debug`：
+
+```powershell
+python video_splitter.py run path\to\video.mov --output-dir outputs_pipeline --debug
+```
+
+会额外保留中间结果和调试输出：
+
+```text
+outputs_pipeline/
+├── transnet/
+├── autoshot/
+└── result/
+```
+
+`result/` 中会额外包含：
+
+```text
+candidate_sweep_report.html     # 候选点调试报告
+candidate_sweep.csv             # 候选点分数和来源
+candidate_sweep_meta.json       # 候选点元信息
+candidate_clips/                # 候选点附近的小视频
 ```
 
 ## summary.json
@@ -219,3 +237,4 @@ python video_splitter.py sweep VIDEO --help
 - short normal gap 会被合并
 - 接近黑场/白场的帧会被吸收到 transition
 - 输出 normal / transition clips 和 `summary.json`
+- 默认不保留候选点调试输出和中间阶段目录；需要排查算法时使用 `--debug`

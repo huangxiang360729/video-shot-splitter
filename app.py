@@ -235,6 +235,8 @@ def process_job(job_id: str):
             append_log(job_id, f"Done in {elapsed:.1f}s\n")
 
         report = result_dir / "normal_transition_report.html"
+        shutil.rmtree(transnet_dir, ignore_errors=True)
+        shutil.rmtree(autoshot_dir, ignore_errors=True)
         set_job(job_id, status="done", step="Complete", progress=100, report_url=rel_url(report), log_url=rel_url(log_path))
     except Exception as exc:
         append_log(job_id, "\n" + traceback.format_exc())
