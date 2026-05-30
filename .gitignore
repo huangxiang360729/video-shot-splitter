@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+
+# Local models and downloaded third-party repos
+models/
+.transnetv2/
+
+# Input videos and media assets
+*.mov
+*.mp4
+*.avi
+*.mkv
+*.webm
+
+# Generated reports, clips, and web job outputs
+outputs*/
+web_runs/
