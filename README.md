@@ -18,7 +18,7 @@
 ├── video_splitter.py   # 视频分析主程序
 ├── requirements.txt    # Python 依赖
 ├── vendor/transnetv2/  # TransNetV2 PyTorch 推理代码
-└── models/             # TransNetV2 权重，需本地准备
+└── models/             # TransNetV2 权重
 ```
 
 生成结果默认不会提交到 Git，包括：
@@ -27,7 +27,6 @@
 outputs*/
 web_runs/
 *.mov / *.mp4 / ...
-models/
 ```
 
 ## 安装环境
@@ -46,7 +45,7 @@ pip install -r requirements.txt
 C:\Users\admin\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -m pip install -r requirements.txt
 ```
 
-## 准备 TransNetV2 权重
+## TransNetV2
 
 仓库已内置 TransNetV2 PyTorch 推理代码：
 
@@ -54,14 +53,12 @@ C:\Users\admin\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\p
 vendor/transnetv2/transnetv2_pytorch.py
 ```
 
-你只需要额外准备权重文件：
+仓库也已内置当前使用的 PyTorch 权重文件：
 
 ```text
 models/
   transnetv2-pytorch-weights.pth
 ```
-
-`models/` 默认被 `.gitignore` 忽略，避免把模型权重提交到仓库。
 
 `vendor/transnetv2/` 来自 [soCzech/TransNetV2](https://github.com/soCzech/TransNetV2)，保留了原项目的 `LICENSE` 和 PyTorch inference README。
 

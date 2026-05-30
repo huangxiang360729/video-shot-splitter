@@ -1,8 +1,7 @@
 __pycache__/
 *.py[cod]
 
-# Local model weights and scratch third-party checkout
-models/
+# Scratch third-party checkout
 .transnetv2/
 
 # Input videos and media assets
