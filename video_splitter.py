@@ -1617,6 +1617,54 @@ def write_run_report(out_dir, video_path, run_rows, fps, frame_count, threshold)
     return report, csv_path
 
 
+def write_summary_json(out_dir, video_path, report_path, run_rows, fps, frame_count, threshold):
+    summary_path = out_dir / "summary.json"
+
+    def clip_item(row):
+        clip_path = Path(row["clip"])
+        return {
+            "id": int(row["run_id"]),
+            "label": row["label"],
+            "start_frame": int(row["start_frame"]),
+            "end_frame": int(row["end_frame"]),
+            "start_timecode": row["start_timecode"],
+            "end_timecode": row["end_timecode"],
+            "duration_seconds": float(row["duration_seconds"]),
+            "source": row.get("source", ""),
+            "clip_path": str(clip_path),
+        }
+
+    transition_clips = [clip_item(row) for row in run_rows if row["label"] == "transition"]
+    normal_clips = [clip_item(row) for row in run_rows if row["label"] == "normal"]
+    summary = {
+        "video": {
+            "path": str(video_path),
+            "fps": float(fps),
+            "frame_count": int(frame_count),
+            "duration_seconds": round(frame_count / fps, 3) if fps else None,
+        },
+        "parameters": {
+            "candidate_threshold": float(threshold),
+        },
+        "outputs": {
+            "report_html": str(report_path),
+            "runs_csv": str(out_dir / "normal_transition_runs.csv"),
+            "run_clips_dir": str(out_dir / "run_clips"),
+        },
+        "counts": {
+            "total_clips": len(run_rows),
+            "transition_clips": len(transition_clips),
+            "normal_clips": len(normal_clips),
+        },
+        "clips": {
+            "transition": transition_clips,
+            "normal": normal_clips,
+        },
+    }
+    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    return summary_path
+
+
 def run_sweep_cli(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(description="High-recall local candidate sweep for fast transitions.")
     parser.add_argument("video", type=Path)
@@ -1681,8 +1729,10 @@ def run_sweep_cli(argv: list[str] | None = None):
         )
         run_rows = export_run_clips(args.video, args.output_dir, runs, fps)
         run_report, run_csv = write_run_report(args.output_dir, args.video, run_rows, fps, len(frames), args.threshold)
+        summary_path = write_summary_json(args.output_dir, args.video, run_report, run_rows, fps, len(frames), args.threshold)
         print(f"Wrote: {run_report}")
         print(f"Wrote: {run_csv}")
+        print(f"Wrote: {summary_path}")
     print(f"candidates={len(candidates)}")
     print(f"Wrote: {report}")
     print(f"Wrote: {csv_path}")
