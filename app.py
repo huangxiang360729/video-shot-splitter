@@ -183,7 +183,8 @@ def process_job(job_id: str):
                 job_id,
                 [
                     PYTHON,
-                    ROOT / "split_shots_transnetv2.py",
+                    ROOT / "video_splitter.py",
+                    "transnet",
                     video_path,
                     *PIPELINE["transnet"],
                     "--output-dir",
@@ -198,7 +199,8 @@ def process_job(job_id: str):
                 job_id,
                 [
                     PYTHON,
-                    ROOT / "run_shotsplit_autoshot.py",
+                    ROOT / "video_splitter.py",
+                    "autoshot",
                     video_path,
                     *PIPELINE["autoshot"],
                     "--output-dir",
@@ -213,7 +215,8 @@ def process_job(job_id: str):
                 job_id,
                 [
                     PYTHON,
-                    ROOT / "candidate_sweep_local.py",
+                    ROOT / "video_splitter.py",
+                    "sweep",
                     video_path,
                     "--transnet-predictions",
                     transnet_dir / f"{stem}_frame_predictions.csv",
