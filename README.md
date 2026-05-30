@@ -39,10 +39,10 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-如果你使用 Codex 本地运行时，也可以直接用它的 Python：
+如果你使用自定义 Python 解释器，也可以把 `python` 替换成对应解释器路径：
 
 ```powershell
-C:\Users\admin\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -m pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 ## TransNetV2
