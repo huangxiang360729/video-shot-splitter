@@ -17,8 +17,8 @@
 ├── app.py              # 本地 Web 上传和进度页面
 ├── video_splitter.py   # 视频分析主程序
 ├── requirements.txt    # Python 依赖
-├── models/             # TransNetV2 权重，需本地准备
-└── .transnetv2/        # TransNetV2 PyTorch 推理代码，需本地准备
+├── vendor/transnetv2/  # TransNetV2 PyTorch 推理代码
+└── models/             # TransNetV2 权重，需本地准备
 ```
 
 生成结果默认不会提交到 Git，包括：
@@ -28,7 +28,6 @@ outputs*/
 web_runs/
 *.mov / *.mp4 / ...
 models/
-.transnetv2/
 ```
 
 ## 安装环境
@@ -47,26 +46,24 @@ pip install -r requirements.txt
 C:\Users\admin\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -m pip install -r requirements.txt
 ```
 
-## 准备 TransNetV2
+## 准备 TransNetV2 权重
 
-当前程序依赖 TransNetV2 PyTorch 推理代码和权重。请准备以下两个路径：
+仓库已内置 TransNetV2 PyTorch 推理代码：
 
 ```text
-.transnetv2/inference-pytorch/transnetv2_pytorch.py
-models/transnetv2-pytorch-weights.pth
+vendor/transnetv2/transnetv2_pytorch.py
 ```
 
-也就是说，项目根目录下应类似：
+你只需要额外准备权重文件：
 
 ```text
-.transnetv2/
-  inference-pytorch/
-    transnetv2_pytorch.py
 models/
   transnetv2-pytorch-weights.pth
 ```
 
-`models/` 和 `.transnetv2/` 默认被 `.gitignore` 忽略，避免把模型和第三方代码提交到仓库。
+`models/` 默认被 `.gitignore` 忽略，避免把模型权重提交到仓库。
+
+`vendor/transnetv2/` 来自 [soCzech/TransNetV2](https://github.com/soCzech/TransNetV2)，保留了原项目的 `LICENSE` 和 PyTorch inference README。
 
 ## Web 使用
 
@@ -225,4 +222,3 @@ python video_splitter.py sweep VIDEO --help
 - short normal gap 会被合并
 - 接近黑场/白场的帧会被吸收到 transition
 - 输出 normal / transition clips 和 `summary.json`
-

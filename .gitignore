@@ -1,7 +1,7 @@
 __pycache__/
 *.py[cod]
 
-# Local models and downloaded third-party repos
+# Local model weights and scratch third-party checkout
 models/
 .transnetv2/
 

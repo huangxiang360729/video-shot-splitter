@@ -28,7 +28,7 @@ import torch
 
 
 ROOT = Path(__file__).resolve().parent
-TRANSNET_PYTORCH_DIR = ROOT / ".transnetv2" / "inference-pytorch"
+TRANSNET_PYTORCH_DIR = ROOT / "vendor" / "transnetv2"
 if str(TRANSNET_PYTORCH_DIR) not in sys.path:
     sys.path.insert(0, str(TRANSNET_PYTORCH_DIR))
 
