@@ -4,6 +4,7 @@ This file contains the full local processing code used by app.py. It exposes
 three CLI stages so the web app can show progress while still keeping the video
 analysis code in one normal, readable module:
 
+    python video_splitter.py run VIDEO [args]
     python video_splitter.py transnet VIDEO [args]
     python video_splitter.py autoshot VIDEO [args]
     python video_splitter.py sweep VIDEO [args]
@@ -1692,13 +1693,107 @@ def run_sweep_cli(argv: list[str] | None = None):
 # Unified CLI
 
 
+def run_pipeline_cli(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Run the full local shot splitting pipeline.")
+    parser.add_argument("video", type=Path)
+    parser.add_argument("--output-dir", type=Path, default=Path("outputs_pipeline"))
+    parser.add_argument("--device", choices=["cpu", "cuda"], default="cpu")
+    args = parser.parse_args(argv)
+
+    video = args.video
+    out_dir = args.output_dir
+    transnet_dir = out_dir / "transnet"
+    autoshot_dir = out_dir / "autoshot"
+    result_dir = out_dir / "result"
+    for path in [transnet_dir, autoshot_dir, result_dir]:
+        path.mkdir(parents=True, exist_ok=True)
+
+    print("[1/3] TransNetV2 candidate scores")
+    run_transnet_cli(
+        [
+            str(video),
+            "--device",
+            args.device,
+            "--threshold",
+            "0.1",
+            "--score-mode",
+            "max",
+            "--output-dir",
+            str(transnet_dir),
+        ]
+    )
+
+    print("[2/3] AutoShot candidate scores")
+    run_autoshot_cli(
+        [
+            str(video),
+            "--threshold",
+            "0.45",
+            "--transition-pad-frames",
+            "2",
+            "--output-dir",
+            str(autoshot_dir),
+        ]
+    )
+
+    print("[3/3] Adaptive sweep and clip export")
+    run_sweep_cli(
+        [
+            str(video),
+            "--transnet-predictions",
+            str(transnet_dir / f"{video.stem}_frame_predictions.csv"),
+            "--autoshot-predictions",
+            str(autoshot_dir / f"{video.stem}_autoshot_frame_predictions.csv"),
+            "--output-dir",
+            str(result_dir),
+            "--threshold",
+            "0.34",
+            "--model-keep-threshold",
+            "0.36",
+            "--visual-keep-threshold",
+            "0.66",
+            "--weak-visual-keep-threshold",
+            "0.55",
+            "--min-supports",
+            "3",
+            "--min-gap-seconds",
+            "0.22",
+            "--clip-seconds",
+            "0.9",
+            "--split-runs",
+            "--adaptive-runs",
+            "--hard-pad-frames",
+            "2",
+            "--complex-expand-threshold",
+            "0.45",
+            "--flash-expand-threshold",
+            "0.45",
+            "--max-complex-seconds",
+            "0.75",
+            "--dark-threshold",
+            "0.08",
+            "--bright-threshold",
+            "0.96",
+            "--luma-pad-frames",
+            "2",
+            "--min-normal-seconds",
+            "0.45",
+        ]
+    )
+
+    report = result_dir / "normal_transition_report.html"
+    print(f"Done. Open: {report}")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Local video shot and transition splitting pipeline.")
-    parser.add_argument("stage", choices=["transnet", "autoshot", "sweep"], help="Pipeline stage to run.")
+    parser.add_argument("stage", choices=["run", "transnet", "autoshot", "sweep"], help="Pipeline stage to run.")
     parser.add_argument("stage_args", nargs=argparse.REMAINDER, help="Arguments passed to the selected stage.")
     args = parser.parse_args(argv)
 
-    if args.stage == "transnet":
+    if args.stage == "run":
+        run_pipeline_cli(args.stage_args)
+    elif args.stage == "transnet":
         run_transnet_cli(args.stage_args)
     elif args.stage == "autoshot":
         run_autoshot_cli(args.stage_args)
