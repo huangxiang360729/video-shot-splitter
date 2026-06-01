@@ -1,6 +1,6 @@
 """video-shot-splitter: 本地视频分镜/转场拆分工具。"""
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 from video_shot_splitter.pipeline import run_pipeline
 
