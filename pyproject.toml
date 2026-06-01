@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "video-shot-splitter"
+dynamic = ["version"]
+description = "本地视频分镜/转场拆分工具"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "huangxiang360729" }]
+dependencies = [
+    "numpy",
+    "opencv-python",
+    "torch",
+    "imageio-ffmpeg",
+    "shotsplit",
+]
+
+[project.urls]
+Homepage = "https://github.com/huangxiang360729/video-shot-splitter"
+
+[project.scripts]
+video-shot-splitter = "video_shot_splitter.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.dynamic]
+version = { attr = "video_shot_splitter.__version__" }
+
+[tool.setuptools.package-data]
+video_shot_splitter = [
+    "models/*.pth",
+    "vendor/transnetv2/*",
+    "vendor/transnetv2/LICENSE",
+]
