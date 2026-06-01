@@ -14,11 +14,17 @@
 
 ```text
 .
-├── app.py              # 本地 Web 上传和进度页面
-├── video_splitter.py   # 视频分析主程序
-├── requirements.txt    # Python 依赖
-├── vendor/transnetv2/  # TransNetV2 PyTorch 推理代码
-└── models/             # TransNetV2 权重
+├── pyproject.toml          # 打包配置（PEP 621）
+├── src/
+│   └── video_shot_splitter/
+│       ├── cli.py          # 命令行入口
+│       ├── pipeline.py     # 视频分析逻辑 + run_pipeline API
+│       ├── report.py       # HTML/可视化报告
+│       ├── resources.py    # 定位包内模型权重
+│       ├── web/app.py      # 本地 Web 上传和进度页面
+│       ├── models/         # TransNetV2 权重（随包分发）
+│       └── vendor/transnetv2/  # TransNetV2 PyTorch 推理代码
+└── tests/                  # 测试
 ```
 
 生成结果默认不会提交到 Git，包括：
@@ -26,39 +32,38 @@
 ```text
 outputs*/
 web_runs/
+dist/ build/ *.egg-info/
 *.mov / *.mp4 / ...
 ```
 
-## 安装环境
+## 安装
 
-建议使用 Python 3.10+。
+需要 Python 3.10+。从 PyPI 安装：
 
 ```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+pip install video-shot-splitter
 ```
 
-如果你使用自定义 Python 解释器，也可以把 `python` 替换成对应解释器路径：
+模型权重已随包分发，安装后即可使用，无需额外下载。
+
+从源码开发安装：
 
 ```powershell
-python -m pip install -r requirements.txt
+git clone https://github.com/huangxiang360729/video-shot-splitter
+cd video-shot-splitter
+pip install -e .
 ```
 
 ## TransNetV2
 
-仓库已内置 TransNetV2 PyTorch 推理代码：
+包内已内置 TransNetV2 PyTorch 推理代码与权重：
 
 ```text
-vendor/transnetv2/transnetv2_pytorch.py
+src/video_shot_splitter/vendor/transnetv2/transnetv2_pytorch.py
+src/video_shot_splitter/models/transnetv2-pytorch-weights.pth
 ```
 
-仓库也已内置当前使用的 PyTorch 权重文件：
-
-```text
-models/
-  transnetv2-pytorch-weights.pth
-```
+权重随 wheel 一起分发，安装后由 `importlib.resources` 自动定位，无需手动指定。需要时仍可用 `--weights` 参数覆盖为自己的权重文件。
 
 `vendor/transnetv2/` 来自 [soCzech/TransNetV2](https://github.com/soCzech/TransNetV2)，保留了原项目的 `LICENSE` 和 PyTorch inference README。
 
@@ -67,7 +72,7 @@ models/
 启动本地网页服务：
 
 ```powershell
-python app.py
+video-shot-splitter serve
 ```
 
 打开浏览器：
@@ -75,6 +80,8 @@ python app.py
 ```text
 http://127.0.0.1:7860/
 ```
+
+上传文件与分析产物会落在你启动服务的当前目录下的 `web_runs/`。
 
 页面操作：
 
@@ -90,20 +97,22 @@ Web 流程会自动使用当前调好的默认参数。
 最简单用法：
 
 ```powershell
-python video_splitter.py run path\to\video.mov
+video-shot-splitter run path\to\video.mov
 ```
 
 指定输出目录：
 
 ```powershell
-python video_splitter.py run path\to\video.mov --output-dir outputs_pipeline
+video-shot-splitter run path\to\video.mov --output-dir outputs_pipeline
 ```
 
 GPU 可用时可以指定：
 
 ```powershell
-python video_splitter.py run path\to\video.mov --device cuda
+video-shot-splitter run path\to\video.mov --device cuda
 ```
+
+也可以用 `python -m video_shot_splitter run ...` 调用（等价）。
 
 ## 输出内容
 
@@ -138,7 +147,7 @@ outputs_pipeline/result/summary.json
 如果使用 `--debug`：
 
 ```powershell
-python video_splitter.py run path\to\video.mov --output-dir outputs_pipeline --debug
+video-shot-splitter run path\to\video.mov --output-dir outputs_pipeline --debug
 ```
 
 会额外保留中间结果和调试输出：
@@ -223,15 +232,15 @@ normal_transition_runs.csv      # 每个 normal/transition run 的调试表格
 普通使用建议只用 `run`。如果需要单独调试某个阶段，可以使用：
 
 ```powershell
-python video_splitter.py transnet VIDEO --help
-python video_splitter.py autoshot VIDEO --help
-python video_splitter.py sweep VIDEO --help
+video-shot-splitter transnet VIDEO --help
+video-shot-splitter autoshot VIDEO --help
+video-shot-splitter sweep VIDEO --help
 ```
 
 也可以跑一个不依赖模型的小型输出契约自检：
 
 ```powershell
-python video_splitter.py smoke-test
+video-shot-splitter smoke-test
 ```
 
 完整流程内部实际会依次执行：
