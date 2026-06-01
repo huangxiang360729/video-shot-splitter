@@ -14,8 +14,12 @@ from tempfile import NamedTemporaryFile
 from urllib.parse import quote, unquote, urlparse
 
 
-ROOT = Path(__file__).resolve().parent.parent.parent.parent
-RUNS_DIR = ROOT / "web_runs"
+# 运行产物锚定到当前工作目录，而非包安装位置（site-packages）。
+# 这样用户在任意目录运行 `video-shot-splitter serve` 时，上传文件与
+# 分析产物都落在他启动服务的目录下，不会污染 Python 安装目录、也不会
+# 因 site-packages 只读而失败。
+BASE_DIR = Path.cwd()
+RUNS_DIR = BASE_DIR / "web_runs"
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024
 LOG_TAIL_CHARS = 8000
 
@@ -137,7 +141,7 @@ def parse_multipart_file(path: Path, content_type: str, output_dir: Path) -> Pat
 
 
 def rel_url(path: Path) -> str:
-    return "/" + quote(path.relative_to(ROOT).as_posix())
+    return "/" + quote(path.relative_to(BASE_DIR).as_posix())
 
 
 def is_safe_child(path: Path, root: Path) -> bool:
@@ -221,7 +225,7 @@ def process_job(job_id: str):
                     "--output-dir",
                     transnet_dir,
                 ],
-                ROOT,
+                BASE_DIR,
                 log,
             )
 
@@ -238,7 +242,7 @@ def process_job(job_id: str):
                     "--output-dir",
                     autoshot_dir,
                 ],
-                ROOT,
+                BASE_DIR,
                 log,
             )
 
@@ -259,7 +263,7 @@ def process_job(job_id: str):
                     result_dir,
                     *PIPELINE["sweep"],
                 ],
-                ROOT,
+                BASE_DIR,
                 log,
             )
 
@@ -455,8 +459,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_bytes(json.dumps(data, ensure_ascii=False).encode("utf-8"), "application/json; charset=utf-8")
             return
 
-        requested = (ROOT / unquote(parsed.path.lstrip("/"))).resolve()
-        if not is_safe_child(requested, ROOT) or not requested.exists() or requested.is_dir():
+        requested = (BASE_DIR / unquote(parsed.path.lstrip("/"))).resolve()
+        if not is_safe_child(requested, BASE_DIR) or not requested.exists() or requested.is_dir():
             self.send_error(404)
             return
 
@@ -483,7 +487,7 @@ class Handler(BaseHTTPRequestHandler):
             uploads = job_dir / "uploads"
             temp_request = None
             try:
-                with NamedTemporaryFile(delete=False, dir=ROOT) as tmp:
+                with NamedTemporaryFile(delete=False, dir=BASE_DIR) as tmp:
                     temp_request = Path(tmp.name)
                     remaining = length
                     while remaining > 0:

@@ -8,5 +8,7 @@ def default_weights_path() -> Path:
     resource = files("video_shot_splitter").joinpath(
         "models/transnetv2-pytorch-weights.pth"
     )
-    # importlib.resources 在普通安装下返回真实路径；用 as_file 兜底 zip 安装
+    # 普通 wheel 安装下 files() 返回真实磁盘路径，str() 即可得到可用路径。
+    # 注意：不支持 zipimport（.egg/zipapp）——那种场景需 importlib.resources.as_file
+    # 配合 ExitStack 把资源解到临时文件，但 30MB 权重不适合 zipimport，此处不处理。
     return Path(str(resource))

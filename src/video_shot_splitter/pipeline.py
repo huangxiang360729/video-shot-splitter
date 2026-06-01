@@ -1082,4 +1082,3 @@ def run_pipeline(video, output_dir="outputs_pipeline", device="cpu", debug=False
     run_pipeline_cli(argv)
     from pathlib import Path
     return Path(output_dir) / "result" / "summary.json"
-    return frame_count
