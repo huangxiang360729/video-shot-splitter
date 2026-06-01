@@ -125,7 +125,6 @@ outputs_pipeline/result/
 ```text
 normal_transition_report.html   # 最终可视化报告
 summary.json                    # 最终结构化总结
-normal_transition_runs.csv      # 每个 normal/transition run 的表格
 run_clips/                      # 最终 normal/transition 小视频
 ```
 
@@ -158,6 +157,7 @@ candidate_sweep_report.html     # 候选点调试报告
 candidate_sweep.csv             # 候选点分数和来源
 candidate_sweep_meta.json       # 候选点元信息
 candidate_clips/                # 候选点附近的小视频
+normal_transition_runs.csv      # 每个 normal/transition run 的调试表格
 ```
 
 ## summary.json
@@ -166,26 +166,32 @@ candidate_clips/                # 候选点附近的小视频
 
 ```json
 {
+  "schema_version": "1.0",
   "video": {
-    "path": "path/to/video.mov",
+    "filename": "video.mov",
+    "path": "video.mov",
     "fps": 25.0,
     "frame_count": 1000,
-    "duration_seconds": 40.0
+    "duration_seconds": 40.0,
+    "width": 1920,
+    "height": 1080,
+    "codec_name": "h264",
+    "has_audio": true
   },
   "parameters": {
     "candidate_threshold": 0.34
   },
   "outputs": {
-    "report_html": "outputs_pipeline/result/normal_transition_report.html",
-    "runs_csv": "outputs_pipeline/result/normal_transition_runs.csv",
-    "run_clips_dir": "outputs_pipeline/result/run_clips"
+    "report_html": "normal_transition_report.html",
+    "run_clips_dir": "run_clips"
   },
   "counts": {
     "total_clips": 12,
     "transition_clips": 5,
     "normal_clips": 7
   },
-  "clips": {
+  "clips": [],
+  "clip_groups": {
     "transition": [],
     "normal": []
   }
@@ -197,16 +203,20 @@ candidate_clips/                # 候选点附近的小视频
 ```json
 {
   "id": 1,
-  "label": "transition",
+  "type": "transition",
+  "start_sec": 4.0,
+  "end_sec": 4.4,
+  "duration_sec": 0.4,
   "start_frame": 100,
   "end_frame": 110,
   "start_timecode": "00:00:04.000",
   "end_timecode": "00:00:04.400",
-  "duration_seconds": 0.4,
   "source": "hard_cut_pad",
-  "clip_path": "outputs_pipeline/result/run_clips/run_001_transition_00-00-04.000.mp4"
+  "clip_path": "run_clips/run_001_transition_00-00-04.000.mp4"
 }
 ```
+
+`clips` 是按原视频时间顺序排列的主结果，完整覆盖原视频时间轴；`clip_groups` 只是为了方便按 normal / transition 分组读取。输出路径均相对于 `summary.json` 所在目录，移动整个结果目录后仍然可用。默认情况下不会把本机绝对视频路径写进 `summary.json`。
 
 ## 高级命令
 
@@ -216,6 +226,12 @@ candidate_clips/                # 候选点附近的小视频
 python video_splitter.py transnet VIDEO --help
 python video_splitter.py autoshot VIDEO --help
 python video_splitter.py sweep VIDEO --help
+```
+
+也可以跑一个不依赖模型的小型输出契约自检：
+
+```powershell
+python video_splitter.py smoke-test
 ```
 
 完整流程内部实际会依次执行：

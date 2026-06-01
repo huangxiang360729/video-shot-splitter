@@ -17,6 +17,7 @@ import csv
 import html
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -37,9 +38,6 @@ try:
 except Exception:  # TransNet is only required when running the transnet stage.
     TransNetV2 = None
 
-
-# ---------------------------------------------------------------------------
-# TransNetV2 stage
 
 def format_time(seconds: float) -> str:
     millis = int(round(seconds * 1000))
@@ -940,7 +938,7 @@ def run_autoshot_cli(argv: list[str] | None = None) -> None:
             include_scores=True,
         )
 
-    _, _, fps = read_video(args.video)
+    _frame_count, _smalls, fps = read_video(args.video)
     scores = np.asarray(analysis["frame_scores"], dtype=np.float32)
     predictions_path = args.output_dir / f"{args.video.stem}_autoshot_frame_predictions.csv"
     write_autoshot_predictions(predictions_path, scores.tolist(), fps)
@@ -969,31 +967,24 @@ def run_autoshot_cli(argv: list[str] | None = None) -> None:
 # ---------------------------------------------------------------------------
 # Adaptive candidate sweep stage
 
-def format_time(seconds: float) -> str:
-    millis = int(round(seconds * 1000))
-    hours, rem = divmod(millis, 3_600_000)
-    minutes, rem = divmod(rem, 60_000)
-    secs, ms = divmod(rem, 1000)
-    return f"{hours:02d}:{minutes:02d}:{secs:02d}.{ms:03d}"
-
 
 def read_video(video_path: Path, size=(160, 90)):
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
         raise RuntimeError(f"Cannot open video: {video_path}")
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-    frames = []
     smalls = []
+    frame_count = 0
     while True:
         ok, frame = cap.read()
         if not ok:
             break
-        frames.append(frame)
         smalls.append(cv2.resize(frame, size, interpolation=cv2.INTER_AREA))
+        frame_count += 1
     cap.release()
-    if not frames:
+    if not frame_count:
         raise RuntimeError("No frames decoded.")
-    return frames, np.asarray(smalls), float(fps)
+    return frame_count, np.asarray(smalls), float(fps)
 
 
 def robust_norm(values, lo=50, hi=99):
@@ -1423,6 +1414,67 @@ def rel(from_file, target):
     return quote(os.path.relpath(target, from_file.parent).replace(os.sep, "/"), safe="/:._-")
 
 
+def output_path(base_dir: Path, target: Path) -> str:
+    return os.path.relpath(target, base_dir).replace(os.sep, "/")
+
+
+def fourcc_to_text(value: float) -> str | None:
+    code = int(value)
+    if code <= 0:
+        return None
+    chars = [chr((code >> 8 * i) & 0xFF) for i in range(4)]
+    text = "".join(chars).strip()
+    return text or None
+
+
+def probe_video_metadata(video_path: Path, fps: float, frame_count: int) -> dict:
+    metadata = {
+        "path": str(video_path),
+        "fps": float(fps),
+        "frame_count": int(frame_count),
+        "duration_seconds": round(frame_count / fps, 3) if fps else None,
+        "width": None,
+        "height": None,
+        "codec_name": None,
+        "has_audio": None,
+    }
+
+    cap = cv2.VideoCapture(str(video_path))
+    if cap.isOpened():
+        metadata["width"] = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or None
+        metadata["height"] = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or None
+        metadata["codec_name"] = fourcc_to_text(cap.get(cv2.CAP_PROP_FOURCC))
+        cap.release()
+
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return metadata
+
+    cmd = [
+        ffprobe,
+        "-v",
+        "error",
+        "-show_entries",
+        "stream=codec_type,codec_name,width,height",
+        "-of",
+        "json",
+        str(video_path),
+    ]
+    try:
+        result = subprocess.run(cmd, check=True, capture_output=True, text=True, encoding="utf-8")
+        streams = json.loads(result.stdout).get("streams", [])
+    except Exception:
+        return metadata
+
+    video_stream = next((stream for stream in streams if stream.get("codec_type") == "video"), None)
+    if video_stream:
+        metadata["codec_name"] = video_stream.get("codec_name") or metadata["codec_name"]
+        metadata["width"] = video_stream.get("width") or metadata["width"]
+        metadata["height"] = video_stream.get("height") or metadata["height"]
+    metadata["has_audio"] = any(stream.get("codec_type") == "audio" for stream in streams)
+    return metadata
+
+
 def write_outputs(out_dir, video_path, candidates, clip_rows, fps, frame_count, threshold):
     csv_path = out_dir / "candidate_sweep.csv"
     fields = [
@@ -1518,27 +1570,44 @@ def write_outputs(out_dir, video_path, candidates, clip_rows, fps, frame_count, 
     return report, csv_path
 
 
-def write_run_report(out_dir, video_path, run_rows, fps, frame_count, threshold):
+def write_runs_csv(out_dir, run_rows):
     csv_path = out_dir / "normal_transition_runs.csv"
     with csv_path.open("w", newline="", encoding="utf-8-sig") as f:
-        fields = ["run_id", "label", "start_frame", "end_frame", "start_timecode", "end_timecode", "duration_seconds", "source", "clip"]
+        fields = ["id", "type", "start_frame", "end_frame", "start_timecode", "end_timecode", "duration_sec", "source", "clip_path"]
         writer = csv.DictWriter(f, fieldnames=fields)
         writer.writeheader()
-        writer.writerows(run_rows)
+        for row in run_rows:
+            writer.writerow(
+                {
+                    "id": row["run_id"],
+                    "type": row["label"],
+                    "start_frame": row["start_frame"],
+                    "end_frame": row["end_frame"],
+                    "start_timecode": row["start_timecode"],
+                    "end_timecode": row["end_timecode"],
+                    "duration_sec": row["duration_seconds"],
+                    "source": row.get("source", ""),
+                    "clip_path": row["clip"],
+                }
+            )
+    return csv_path
 
+
+def write_run_report(out_dir, summary, source_video_path: Path | None = None):
+    video_path = Path(source_video_path or summary["video"]["path"])
     report = out_dir / "normal_transition_report.html"
 
-    def cards(label):
+    def cards(clip_type):
         html_cards = []
-        for row in [r for r in run_rows if r["label"] == label]:
+        for row in summary["clip_groups"].get(clip_type, []):
             html_cards.append(
                 f"""
-                <article class="{label}">
-                  <video autoplay muted loop playsinline preload="auto" src="{rel(report, Path(row['clip']))}"></video>
+                <article class="{clip_type}">
+                  <video autoplay muted loop playsinline preload="auto" src="{rel(report, out_dir / row['clip_path'])}"></video>
                   <div class="meta">
-                    <strong>Run {row['run_id']} · {label}</strong>
+                    <strong>Clip {row['id']} · {clip_type}</strong>
                     <span>{html.escape(row['start_timecode'])} - {html.escape(row['end_timecode'])}</span>
-                    <span>{row['duration_seconds']}s · frames {row['start_frame']}-{row['end_frame']}</span>
+                    <span>{row['duration_sec']}s · frames {row['start_frame']}-{row['end_frame']}</span>
                     <span>{html.escape(row.get('source', ''))}</span>
                   </div>
                 </article>
@@ -1546,8 +1615,15 @@ def write_run_report(out_dir, video_path, run_rows, fps, frame_count, threshold)
             )
         return "".join(html_cards)
 
-    normal_count = sum(1 for row in run_rows if row["label"] == "normal")
-    transition_count = sum(1 for row in run_rows if row["label"] == "transition")
+    normal_count = summary["counts"]["normal_clips"]
+    transition_count = summary["counts"]["transition_clips"]
+    frame_count = summary["video"]["frame_count"]
+    fps = summary["video"]["fps"]
+    threshold = summary["parameters"]["candidate_threshold"]
+    summary_href = rel(report, out_dir / "summary.json")
+    csv_link = ""
+    if "runs_csv" in summary["outputs"]:
+        csv_link = f"""<a href="{rel(report, out_dir / summary['outputs']['runs_csv'])}">Runs CSV</a>"""
     html_text = f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -1563,6 +1639,7 @@ def write_run_report(out_dir, video_path, run_rows, fps, frame_count, threshold)
     .metrics {{ display:flex; gap:10px; flex-wrap:wrap; }}
     .metric {{ background:#fff; border:1px solid #dde2e7; padding:8px 10px; font-size:13px; }}
     .metric b {{ display:block; font-size:17px; }}
+    .links {{ display:flex; gap:12px; margin-top:12px; font-size:13px; }}
     .panel {{ background:#fff; border:1px solid #dde2e7; padding:14px; margin:14px 0; }}
     .source {{ width:100%; max-height:520px; background:#111; }}
     .grid {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:14px; }}
@@ -1584,6 +1661,7 @@ def write_run_report(out_dir, video_path, run_rows, fps, frame_count, threshold)
       <div class="metric"><b>{fps:.3f}</b>fps</div>
       <div class="metric"><b>{threshold:.2f}</b>candidate threshold</div>
     </div>
+    <div class="links"><a href="{summary_href}">Summary JSON</a>{csv_link}</div>
   </header>
   <main>
     <section class="panel"><video class="source" controls preload="metadata" src="{rel(report, video_path)}"></video></section>
@@ -1614,53 +1692,68 @@ def write_run_report(out_dir, video_path, run_rows, fps, frame_count, threshold)
 </html>
 """
     report.write_text(html_text, encoding="utf-8")
-    return report, csv_path
+    return report
 
 
-def write_summary_json(out_dir, video_path, report_path, run_rows, fps, frame_count, threshold):
+def build_summary(out_dir, video_path, report_path, run_rows, fps, frame_count, threshold, runs_csv_path=None):
     summary_path = out_dir / "summary.json"
+    base_dir = summary_path.parent
+    video_metadata = probe_video_metadata(video_path, fps, frame_count)
+    video_metadata["filename"] = video_path.name
+    video_metadata["path"] = video_path.name
 
     def clip_item(row):
         clip_path = Path(row["clip"])
+        start_frame = int(row["start_frame"])
+        end_frame = int(row["end_frame"])
+        start_sec = start_frame / fps if fps else None
+        end_sec = (end_frame + 1) / fps if fps else None
         return {
             "id": int(row["run_id"]),
-            "label": row["label"],
-            "start_frame": int(row["start_frame"]),
-            "end_frame": int(row["end_frame"]),
+            "type": row["label"],
+            "start_sec": round(start_sec, 3) if start_sec is not None else None,
+            "end_sec": round(end_sec, 3) if end_sec is not None else None,
+            "duration_sec": float(row["duration_seconds"]),
+            "start_frame": start_frame,
+            "end_frame": end_frame,
             "start_timecode": row["start_timecode"],
             "end_timecode": row["end_timecode"],
-            "duration_seconds": float(row["duration_seconds"]),
             "source": row.get("source", ""),
-            "clip_path": str(clip_path),
+            "clip_path": output_path(base_dir, clip_path),
         }
 
+    clips = [clip_item(row) for row in run_rows]
     transition_clips = [clip_item(row) for row in run_rows if row["label"] == "transition"]
     normal_clips = [clip_item(row) for row in run_rows if row["label"] == "normal"]
-    summary = {
-        "video": {
-            "path": str(video_path),
-            "fps": float(fps),
-            "frame_count": int(frame_count),
-            "duration_seconds": round(frame_count / fps, 3) if fps else None,
-        },
+    outputs = {
+        "report_html": output_path(base_dir, report_path),
+        "run_clips_dir": output_path(base_dir, out_dir / "run_clips"),
+    }
+    if runs_csv_path is not None:
+        outputs["runs_csv"] = output_path(base_dir, runs_csv_path)
+
+    return {
+        "schema_version": "1.0",
+        "video": video_metadata,
         "parameters": {
             "candidate_threshold": float(threshold),
         },
-        "outputs": {
-            "report_html": str(report_path),
-            "runs_csv": str(out_dir / "normal_transition_runs.csv"),
-            "run_clips_dir": str(out_dir / "run_clips"),
-        },
+        "outputs": outputs,
         "counts": {
             "total_clips": len(run_rows),
             "transition_clips": len(transition_clips),
             "normal_clips": len(normal_clips),
         },
-        "clips": {
+        "clips": clips,
+        "clip_groups": {
             "transition": transition_clips,
             "normal": normal_clips,
         },
     }
+
+
+def write_summary_json(out_dir, summary):
+    summary_path = out_dir / "summary.json"
     summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     return summary_path
 
@@ -1683,31 +1776,31 @@ def run_sweep_cli(argv: list[str] | None = None):
     parser.add_argument("--transnet-predictions", type=Path, default=None)
     parser.add_argument("--autoshot-predictions", type=Path, default=None)
     parser.add_argument("--output-dir", type=Path, default=Path("outputs_candidate_sweep"))
-    parser.add_argument("--threshold", type=float, default=0.34)
-    parser.add_argument("--model-keep-threshold", type=float, default=0.30)
-    parser.add_argument("--visual-keep-threshold", type=float, default=0.58)
-    parser.add_argument("--weak-visual-keep-threshold", type=float, default=0.46)
-    parser.add_argument("--min-supports", type=int, default=2)
-    parser.add_argument("--min-gap-seconds", type=float, default=0.25)
-    parser.add_argument("--clip-seconds", type=float, default=0.9)
+    parser.add_argument("--threshold", type=float, default=0.34, help=argparse.SUPPRESS)
+    parser.add_argument("--model-keep-threshold", type=float, default=0.30, help=argparse.SUPPRESS)
+    parser.add_argument("--visual-keep-threshold", type=float, default=0.58, help=argparse.SUPPRESS)
+    parser.add_argument("--weak-visual-keep-threshold", type=float, default=0.46, help=argparse.SUPPRESS)
+    parser.add_argument("--min-supports", type=int, default=2, help=argparse.SUPPRESS)
+    parser.add_argument("--min-gap-seconds", type=float, default=0.25, help=argparse.SUPPRESS)
+    parser.add_argument("--clip-seconds", type=float, default=0.9, help=argparse.SUPPRESS)
     parser.add_argument("--split-runs", action="store_true")
-    parser.add_argument("--transition-seconds", type=float, default=0.45)
-    parser.add_argument("--adaptive-runs", action="store_true")
-    parser.add_argument("--hard-pad-frames", type=int, default=2)
-    parser.add_argument("--complex-expand-threshold", type=float, default=0.45)
-    parser.add_argument("--flash-expand-threshold", type=float, default=0.45)
-    parser.add_argument("--max-complex-seconds", type=float, default=0.75)
-    parser.add_argument("--dark-threshold", type=float, default=0.08)
-    parser.add_argument("--bright-threshold", type=float, default=0.96)
-    parser.add_argument("--luma-pad-frames", type=int, default=2)
-    parser.add_argument("--min-normal-seconds", type=float, default=0.45)
+    parser.add_argument("--transition-seconds", type=float, default=0.45, help=argparse.SUPPRESS)
+    parser.add_argument("--adaptive-runs", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--hard-pad-frames", type=int, default=2, help=argparse.SUPPRESS)
+    parser.add_argument("--complex-expand-threshold", type=float, default=0.45, help=argparse.SUPPRESS)
+    parser.add_argument("--flash-expand-threshold", type=float, default=0.45, help=argparse.SUPPRESS)
+    parser.add_argument("--max-complex-seconds", type=float, default=0.75, help=argparse.SUPPRESS)
+    parser.add_argument("--dark-threshold", type=float, default=0.08, help=argparse.SUPPRESS)
+    parser.add_argument("--bright-threshold", type=float, default=0.96, help=argparse.SUPPRESS)
+    parser.add_argument("--luma-pad-frames", type=int, default=2, help=argparse.SUPPRESS)
+    parser.add_argument("--min-normal-seconds", type=float, default=0.45, help=argparse.SUPPRESS)
     parser.add_argument("--debug", action="store_true", help="Write candidate reports, candidate clips, and debug metadata.")
     args = parser.parse_args(argv)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    frames, smalls, fps = read_video(args.video)
-    transnet = load_model_scores(args.transnet_predictions, len(frames))
-    autoshot = load_model_scores(args.autoshot_predictions, len(frames))
+    frame_count, smalls, fps = read_video(args.video)
+    transnet = load_model_scores(args.transnet_predictions, frame_count)
+    autoshot = load_model_scores(args.autoshot_predictions, frame_count)
     signals = compute_signals(smalls)
     candidates, score, visual = build_candidates(
         transnet,
@@ -1723,13 +1816,13 @@ def run_sweep_cli(argv: list[str] | None = None):
     )
     if args.debug:
         clip_rows = export_candidate_clips(args.video, args.output_dir, candidates, fps, args.clip_seconds)
-        report, csv_path = write_outputs(args.output_dir, args.video, candidates, clip_rows, fps, len(frames), args.threshold)
+        report, csv_path = write_outputs(args.output_dir, args.video, candidates, clip_rows, fps, frame_count, args.threshold)
     else:
         cleanup_debug_outputs(args.output_dir)
     if args.split_runs:
         runs = build_runs_from_candidates(
             candidates,
-            len(frames),
+            frame_count,
             fps,
             signals=signals if args.adaptive_runs else None,
             transition_seconds=args.transition_seconds,
@@ -1744,11 +1837,24 @@ def run_sweep_cli(argv: list[str] | None = None):
             min_normal_seconds=args.min_normal_seconds,
         )
         run_rows = export_run_clips(args.video, args.output_dir, runs, fps)
-        run_report, run_csv = write_run_report(args.output_dir, args.video, run_rows, fps, len(frames), args.threshold)
-        summary_path = write_summary_json(args.output_dir, args.video, run_report, run_rows, fps, len(frames), args.threshold)
+        report_path = args.output_dir / "normal_transition_report.html"
+        run_csv = write_runs_csv(args.output_dir, run_rows) if args.debug else None
+        summary = build_summary(
+            args.output_dir,
+            args.video,
+            report_path,
+            run_rows,
+            fps,
+            frame_count,
+            args.threshold,
+            runs_csv_path=run_csv,
+        )
+        summary_path = write_summary_json(args.output_dir, summary)
+        run_report = write_run_report(args.output_dir, summary, args.video)
         print(f"Wrote: {run_report}")
-        print(f"Wrote: {run_csv}")
         print(f"Wrote: {summary_path}")
+        if run_csv:
+            print(f"Wrote: {run_csv}")
     print(f"candidates={len(candidates)}")
     if args.debug:
         print(f"Wrote: {report}")
@@ -1860,9 +1966,57 @@ def run_pipeline_cli(argv: list[str] | None = None) -> None:
     print(f"Done. Open: {report}")
 
 
+def write_synthetic_video(video_path: Path, fps: float = 10.0) -> int:
+    width, height = 160, 90
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(str(video_path), fourcc, fps, (width, height))
+    if not writer.isOpened():
+        raise RuntimeError(f"Cannot create smoke test video: {video_path}")
+
+    colors = [(30, 90, 180), (240, 240, 240), (180, 60, 40)]
+    frame_count = 0
+    for color in colors:
+        frame = np.full((height, width, 3), color, dtype=np.uint8)
+        for _ in range(10):
+            writer.write(frame)
+            frame_count += 1
+    writer.release()
+    return frame_count
+
+
+def run_smoke_test_cli(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Run a lightweight output-contract smoke test.")
+    parser.add_argument("--output-dir", type=Path, default=Path("outputs_smoke"))
+    args = parser.parse_args(argv)
+
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    video_path = args.output_dir / "smoke_input.mp4"
+    frame_count = write_synthetic_video(video_path)
+    fps = 10.0
+    runs = [
+        {"label": "normal", "start_frame": 0, "end_frame": 9, "source": ""},
+        {"label": "transition", "start_frame": 10, "end_frame": 19, "source": "smoke_transition"},
+        {"label": "normal", "start_frame": 20, "end_frame": 29, "source": ""},
+    ]
+    run_rows = export_run_clips(video_path, args.output_dir, runs, fps)
+    report_path = args.output_dir / "normal_transition_report.html"
+    summary = build_summary(args.output_dir, video_path, report_path, run_rows, fps, frame_count, threshold=0.34)
+    summary_path = write_summary_json(args.output_dir, summary)
+    report = write_run_report(args.output_dir, summary, video_path)
+
+    data = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert data["schema_version"] == "1.0"
+    assert len(data["clips"]) == 3
+    assert data["clips"][0]["start_frame"] == 0
+    assert data["clips"][-1]["end_frame"] == frame_count - 1
+    assert all((args.output_dir / clip["clip_path"]).exists() for clip in data["clips"])
+    assert report.exists()
+    print(f"Smoke test passed: {summary_path}")
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Local video shot and transition splitting pipeline.")
-    parser.add_argument("stage", choices=["run", "transnet", "autoshot", "sweep"], help="Pipeline stage to run.")
+    parser.add_argument("stage", choices=["run", "transnet", "autoshot", "sweep", "smoke-test"], help="Pipeline stage to run.")
     parser.add_argument("stage_args", nargs=argparse.REMAINDER, help="Arguments passed to the selected stage.")
     args = parser.parse_args(argv)
 
@@ -1874,6 +2028,8 @@ def main(argv: list[str] | None = None) -> None:
         run_autoshot_cli(args.stage_args)
     elif args.stage == "sweep":
         run_sweep_cli(args.stage_args)
+    elif args.stage == "smoke-test":
+        run_smoke_test_cli(args.stage_args)
 
 
 if __name__ == "__main__":
