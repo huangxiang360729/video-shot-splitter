@@ -1,0 +1,2 @@
+[console_scripts]
+video-shot-splitter = video_shot_splitter.cli:main

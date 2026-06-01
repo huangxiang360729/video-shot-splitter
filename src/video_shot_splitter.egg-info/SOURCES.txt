@@ -1,0 +1,16 @@
+LICENSE
+README.md
+pyproject.toml
+src/video_shot_splitter/__init__.py
+src/video_shot_splitter.egg-info/PKG-INFO
+src/video_shot_splitter.egg-info/SOURCES.txt
+src/video_shot_splitter.egg-info/dependency_links.txt
+src/video_shot_splitter.egg-info/entry_points.txt
+src/video_shot_splitter.egg-info/requires.txt
+src/video_shot_splitter.egg-info/top_level.txt
+src/video_shot_splitter/models/transnetv2-pytorch-weights.pth
+src/video_shot_splitter/vendor/__init__.py
+src/video_shot_splitter/vendor/transnetv2/LICENSE
+src/video_shot_splitter/vendor/transnetv2/README.md
+src/video_shot_splitter/vendor/transnetv2/transnetv2_pytorch.py
+src/video_shot_splitter/web/__init__.py
