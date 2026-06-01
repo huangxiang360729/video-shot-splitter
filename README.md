@@ -1,5 +1,7 @@
 # Video Shot Splitter
 
+[![🤗 Live Demo](https://img.shields.io/badge/🤗-Live%20Demo-blue)](https://huggingface.co/spaces/huangxiang360729/video-shot-splitter)
+
 本项目是一个本地视频分镜/转场拆分工具。它会把视频拆成两类 clip：
 
 - `transition`：转场片段
