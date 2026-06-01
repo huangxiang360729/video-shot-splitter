@@ -14,8 +14,7 @@ from tempfile import NamedTemporaryFile
 from urllib.parse import quote, unquote, urlparse
 
 
-ROOT = Path(__file__).resolve().parent
-PYTHON = Path(sys.executable)
+ROOT = Path(__file__).resolve().parent.parent.parent.parent
 RUNS_DIR = ROOT / "web_runs"
 MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024
 LOG_TAIL_CHARS = 8000
@@ -213,8 +212,9 @@ def process_job(job_id: str):
             run_command(
                 job_id,
                 [
-                    PYTHON,
-                    ROOT / "video_splitter.py",
+                    sys.executable,
+                    "-m",
+                    "video_shot_splitter",
                     "transnet",
                     video_path,
                     *PIPELINE["transnet"],
@@ -229,8 +229,9 @@ def process_job(job_id: str):
             run_command(
                 job_id,
                 [
-                    PYTHON,
-                    ROOT / "video_splitter.py",
+                    sys.executable,
+                    "-m",
+                    "video_shot_splitter",
                     "autoshot",
                     video_path,
                     *PIPELINE["autoshot"],
@@ -245,8 +246,9 @@ def process_job(job_id: str):
             run_command(
                 job_id,
                 [
-                    PYTHON,
-                    ROOT / "video_splitter.py",
+                    sys.executable,
+                    "-m",
+                    "video_shot_splitter",
                     "sweep",
                     video_path,
                     "--transnet-predictions",
