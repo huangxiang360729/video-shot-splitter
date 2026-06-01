@@ -1071,3 +1071,15 @@ def write_synthetic_video(video_path: Path, fps: float = 10.0) -> int:
             frame_count += 1
     writer.release()
     return frame_count
+
+
+def run_pipeline(video, output_dir="outputs_pipeline", device="cpu", debug=False):
+    """库入口：对单个视频跑完整三步管线，返回 result 目录下 summary.json 的路径。"""
+    from video_shot_splitter.cli import run_pipeline_cli
+    argv = [str(video), "--output-dir", str(output_dir), "--device", device]
+    if debug:
+        argv.append("--debug")
+    run_pipeline_cli(argv)
+    from pathlib import Path
+    return Path(output_dir) / "result" / "summary.json"
+    return frame_count
