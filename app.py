@@ -10,6 +10,7 @@ import traceback
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from urllib.parse import quote, unquote, urlparse
 
 
@@ -79,7 +80,7 @@ def safe_name(name: str) -> str:
     return "".join(chars).strip(" .") or "uploaded_video.mp4"
 
 
-def parse_multipart(body: bytes, content_type: str) -> tuple[str, bytes]:
+def parse_multipart_file(path: Path, content_type: str, output_dir: Path) -> Path:
     marker = "boundary="
     if marker not in content_type:
         raise ValueError("Missing multipart boundary.")
@@ -87,35 +88,65 @@ def parse_multipart(body: bytes, content_type: str) -> tuple[str, bytes]:
     boundary = content_type.split(marker, 1)[1].strip().strip('"')
     raw_boundary = ("--" + boundary).encode()
 
-    for part in body.split(raw_boundary):
-        part = part.strip(b"\r\n")
-        if not part or part == b"--":
-            continue
+    with path.open("rb") as source:
+        first_line = source.readline().rstrip(b"\r\n")
+        if first_line != raw_boundary:
+            raise ValueError("Invalid multipart body.")
 
-        header_blob, sep, payload = part.partition(b"\r\n\r\n")
-        if not sep:
-            continue
-
-        headers = header_blob.decode("utf-8", errors="replace")
-        if 'name="video"' not in headers:
-            continue
+        headers = []
+        while True:
+            line = source.readline()
+            if line in (b"", b"\r\n", b"\n"):
+                break
+            headers.append(line.decode("utf-8", errors="replace").strip())
+        header_text = "\n".join(headers)
+        if 'name="video"' not in header_text:
+            raise ValueError("No uploaded video field found.")
 
         filename = "uploaded_video"
-        for piece in headers.split(";"):
+        disposition = next((line for line in headers if line.lower().startswith("content-disposition:")), "")
+        for piece in disposition.split(";"):
             piece = piece.strip()
             if piece.startswith("filename="):
                 filename = piece.split("=", 1)[1].strip().strip('"')
                 break
 
-        if payload.endswith(b"\r\n"):
-            payload = payload[:-2]
-        return safe_name(filename), payload
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / safe_name(filename)
+        tail = b""
+        marker_line = b"\r\n" + raw_boundary
+        with output_path.open("wb") as target:
+            while True:
+                chunk = source.read(1024 * 1024)
+                if not chunk:
+                    raise ValueError("Multipart boundary not found.")
+                data = tail + chunk
+                boundary_index = data.find(marker_line)
+                if boundary_index >= 0:
+                    target.write(data[:boundary_index])
+                    break
+                keep = len(marker_line) + 4
+                if len(data) > keep:
+                    target.write(data[:-keep])
+                    tail = data[-keep:]
+                else:
+                    tail = data
+
+        return output_path
 
     raise ValueError("No uploaded video field found.")
 
 
 def rel_url(path: Path) -> str:
     return "/" + quote(path.relative_to(ROOT).as_posix())
+
+
+def is_safe_child(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
 
 
 def set_job(job_id: str, **updates):
@@ -423,7 +454,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         requested = (ROOT / unquote(parsed.path.lstrip("/"))).resolve()
-        if not str(requested).startswith(str(ROOT)) or not requested.exists() or requested.is_dir():
+        if not is_safe_child(requested, ROOT) or not requested.exists() or requested.is_dir():
             self.send_error(404)
             return
 
@@ -445,13 +476,24 @@ class Handler(BaseHTTPRequestHandler):
             if length <= 0 or length > MAX_UPLOAD_BYTES:
                 raise ValueError("Upload is empty or too large.")
 
-            filename, payload = parse_multipart(self.rfile.read(length), self.headers.get("Content-Type", ""))
             job_id = time.strftime("%Y%m%d_%H%M%S_") + uuid.uuid4().hex[:8]
             job_dir = RUNS_DIR / job_id
             uploads = job_dir / "uploads"
-            uploads.mkdir(parents=True, exist_ok=True)
-            video_path = uploads / filename
-            video_path.write_bytes(payload)
+            temp_request = None
+            try:
+                with NamedTemporaryFile(delete=False, dir=ROOT) as tmp:
+                    temp_request = Path(tmp.name)
+                    remaining = length
+                    while remaining > 0:
+                        chunk = self.rfile.read(min(1024 * 1024, remaining))
+                        if not chunk:
+                            raise ValueError("Upload ended before Content-Length was reached.")
+                        tmp.write(chunk)
+                        remaining -= len(chunk)
+                video_path = parse_multipart_file(temp_request, self.headers.get("Content-Type", ""), uploads)
+            finally:
+                if temp_request and temp_request.exists():
+                    temp_request.unlink()
 
             with JOBS_LOCK:
                 JOBS[job_id] = {
@@ -460,7 +502,7 @@ class Handler(BaseHTTPRequestHandler):
                     "progress": 3,
                     "job_dir": str(job_dir),
                     "video_path": str(video_path),
-                    "log_tail": f"Uploaded {filename} ({len(payload) / 1024 / 1024:.1f} MB)\n",
+                    "log_tail": f"Uploaded {video_path.name} ({video_path.stat().st_size / 1024 / 1024:.1f} MB)\n",
                 }
 
             threading.Thread(target=process_job, args=(job_id,), daemon=True).start()
