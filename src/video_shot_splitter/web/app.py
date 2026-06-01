@@ -1,6 +1,7 @@
 import html
 import json
 import mimetypes
+import os
 import shutil
 import subprocess
 import sys
@@ -20,7 +21,7 @@ from urllib.parse import quote, unquote, urlparse
 # 因 site-packages 只读而失败。
 BASE_DIR = Path.cwd()
 RUNS_DIR = BASE_DIR / "web_runs"
-MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024
+MAX_UPLOAD_BYTES = int(os.environ.get("VSS_MAX_UPLOAD_MB", "200")) * 1024 * 1024
 LOG_TAIL_CHARS = 8000
 
 PIPELINE = {
@@ -526,10 +527,15 @@ class Handler(BaseHTTPRequestHandler):
             self.send_bytes(page_shell(body, "Error"), status=500)
 
 
+def server_config():
+    host = os.environ.get("VSS_HOST", "0.0.0.0")
+    port = int(os.environ.get("PORT", "7860"))
+    return host, port
+
+
 def main():
     RUNS_DIR.mkdir(exist_ok=True)
-    host = "127.0.0.1"
-    port = 7860
+    host, port = server_config()
     server = ThreadingHTTPServer((host, port), Handler)
     print(f"Open http://{host}:{port}")
     server.serve_forever()
